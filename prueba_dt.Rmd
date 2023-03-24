@@ -1,0 +1,119 @@
+---
+title: "Experimento replicating MODELS NN"
+author: "Isaac"
+date: "2023-03-24"
+output:
+  bookdown::gitbook: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r librerías}
+# Librerias
+library(DAAG)
+library(party)
+library(rpart)
+library(rpart.plot)
+library(mlbench)
+library(caret)
+library(pROC)
+library(tree)
+```
+
+# Ajustar un modelo de IA
+
+En primer lugar vamos a ajustar un modelo sencillo de ML a un conjunto de datos, en este caso, elegimos un DT.
+
+```{r datos}
+## Datos
+
+# Datos email spam detection
+str(spam7) 
+mydata= spam7
+
+# Decision Tree
+set.seed(1234)
+ind <- sample(2, nrow(mydata), replace = T, prob = c(0.5, 0.5))
+train <- mydata[ind == 1,]
+test <- mydata[ind == 2,]
+```
+
+Ajustamos el modelo.
+```{r DT}
+tree <- rpart(yesno ~., data = train)
+rpart.plot(tree)
+
+printcp(tree)
+plotcp(tree)
+
+p <- predict(tree, train, type = 'class')
+confusionMatrix(p, train$yesno, positive='y')
+
+
+p1 <- predict(tree, test, type = 'prob')
+p1 <- p1[,2]
+r <- multiclass.roc(test$yesno, p1, percent = TRUE)
+roc <- r[['rocs']]
+r1 <- roc[[1]]
+plot.roc(r1,
+         print.auc=TRUE,
+         auc.polygon=TRUE,
+         grid=c(0.1, 0.2),
+         grid.col=c("green", "red"),
+         max.auc.polygon=TRUE,
+         auc.polygon.col="lightblue",
+         print.thres=TRUE,
+         main= 'ROC Curve')
+
+```
+
+# Replacing DT by NN
+
+Encontremos una NN de baja capacidad que replique los resultados del modelo anterior.Supongamos que solo tenemos los datos de entrada X y las salidas predichas por DT
+```{r lib}
+library(tidyverse)
+library(neuralnet)
+```
+```{r datosNN}
+datos_train=cbind(train[,-7],p)
+```
+
+Definimos la estructura de la red.
+
+```{r estructura_red}
+model = neuralnet(
+  p~crl.tot+dollar+bang+money+n000+make,
+  data=datos_train,
+  hidden=c(2),
+  linear.output = FALSE
+)
+plot(model,rep="best")
+```
+
+Ojo!!! podría ser una estructura diferente.
+
+```{r test}
+pred <- predict(model, datos_train)
+labels <- c("n", "y")
+prediction_label <- data.frame(max.col(pred)) %>%     
+  mutate(pred=labels[max.col.pred.]) %>%
+  select(2) %>%
+  unlist()
+
+table(datos_train$p, prediction_label)
+
+error_replication=100*sum(datos_train$p!=prediction_label)/(dim(datos_train)[1])
+error_replication
+```
+Como el error es pequeño asumimos que la red replica de manera correcta los resultados del modelo original. Esto podría no ser suficiente porque necesitamos replicar "el modelo"!!!!
+
+Estudiamos la importancia relativa de las variables del modelo NN:
+```{r importancia_NN}
+require(devtools)
+source_gist('6206737')
+gar.fun('y',model)
+```
+
+¿Coincide con lo esperado?
